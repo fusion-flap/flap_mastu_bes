@@ -34,7 +34,7 @@ def get_camera_info(MAST_file):
     data = {}
     for k in keys:
         data[k] = MAST_file['devices'][cam_object].attrs[k]
-    data['APDCAM_bits'] = 14 # This is not in the file, but normally set to this
+    data['APDCAM_bits'] = data['depth'][0] # This is not in the file, but normally set to this
     return camera_type,data
 
 def apdcam_channel_list(camera_type,sensor_rotation):
@@ -51,7 +51,44 @@ def apdcam_channel_list(camera_type,sensor_rotation):
             
 
 def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, coordinates=None, data_source=None):
+    """ 
+    Data read function for MAST and MAST-U BES diagnostic.
     
+    Parameters
+    ----------
+    exp_id: Shot number or string. If string it has to be in yyyymmdd.xxx format and this reads early 
+            measurements in 2022-23.
+    data_name: string or list of strings
+               ADCxxx: ADC number. Unix style regular expressions are allowed:
+                       ADC*
+                       ADC[2-5]
+                       Can also be a list of data names, eg. ['ADC1','ADC3']
+               BES-r-c (string): APD pixel at row r, column c realtive to upper left corner as looking onto 
+                       the detector.
+    coordinates: List of flap.Coordinate() or a single flap.Coordinate
+                 Defines read ranges. The following coordinates are interpreted:
+                     'Sample': The read samples
+                     'Time': The read times
+                     Only a single equidistant range is interpreted. Use option "Resample"
+                     to resample the signal to lower frequency than the original sampling frequency.
+    options: dict
+        'Scaling':  'Digit'
+                    'Volt'
+        'Datapath': Data path (string)
+        'Resample': Resample to this frequency [Hz]. Only frequencies below the sampling frequency can be used.
+                    The frequency will be rounded to the integer times the sampling frequency. 
+                    Data will be averaged in blocks and the variance in blocks will be added as error.
+        'Test measurement': 
+   
+    Return value
+    ------------
+    flap.DataObject:
+        The output flap data object. The data dimension depends on the requested channels.
+        If only 1 channel is requested: 1D
+        If any of the channels is ADCxxx or the requested channels do not form a 2D array: 2D
+        If the requested channels form a regular 2D subarray of it: 3D
+            
+    """ 
     
     if (exp_id is None):
         raise ValueError('exp_id should be set for MAST data.')
@@ -189,21 +226,21 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                         NotImplementedError("Non-equidistant Sample axis is not implemented yet.")
                 break
     if ((read_range is None) and (read_samplerange is None)):
-        read_samplerange = np.array([0,camera_info['APDCAM_samplenumber']])
+        read_samplerange = np.array([0,camera_info['APDCAM_samplenumber'] - 1])
     if (read_range is not None):
         read_range = np.array(read_range)
     if (read_samplerange is None):
         read_samplerange = np.rint((read_range - float(camera_info['APDCAM_starttime']))
                                    / float(camera_info['APDCAM_sampletime'])
-                                   )
+                                   ).astype(int)
     else:
-        read_samplerange = np.array(read_samplerange)
+        read_samplerange = np.array(read_samplerange).astype(int)
     if ((read_samplerange[1] < 0) or (read_samplerange[0] >= camera_info['APDCAM_samplenumber'])):
         raise ValueError("No data in time range.")
     if (read_samplerange[0] < 0):
         read_samplerange[0] = 0
     if (read_samplerange[1] >= camera_info['APDCAM_samplenumber']):
-        read_samplerange[1] = camera_info['APDCAM_samplenumber']
+        read_samplerange[1] = camera_info['APDCAM_samplenumber'] - 1
     read_range = float(camera_info['APDCAM_starttime']) \
                        + read_samplerange * float(camera_info['APDCAM_sampletime'])
     if (_options['Resample'] is not None):
@@ -216,12 +253,13 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         scale_to_volts = True
         dtype = float
         data_unit = flap.Unit(name='Signal',unit='Volt')
-        number_size = sys.getsizeof(float)
+        number_size = 8
     elif (_options['Scaling'] == 'Digit'):
+        # Converting also Digits to float as offset subtraction results in floats
         scale_to_volts = False
         dtype = float
         data_unit = flap.Unit(name='Signal',unit='Digit')
-        number_size = sys.getsizeof(float)
+        number_size = 8
     else:
         raise ValueError("Invalid option 'Scaling'. Should be 'Digit' or 'Volt'.")
 
@@ -253,7 +291,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     else:
         ndata_out = ndata_read
 
-    # Determining data aray shape
+    # Determining data array shape
     if (outdim == 1):
         data_shape = (ndata_out) 
     elif (outdim == 2):
@@ -274,6 +312,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         for i,ch in enumerate(ADC_proc):
             d = np.array(MAST_file['xbt']['channel{:02d}'.format(ch)], dtype=float)
             d = np.flip(d)
+            d = d[read_samplerange[0]: read_samplerange[0] + ndata_read]
             if (scale_to_volts):
                 d = ((2. ** camera_info['APDCAM_bits'] - 1) - d) / (2. ** camera_info['APDCAM_bits'] - 1) * 2
             else:
