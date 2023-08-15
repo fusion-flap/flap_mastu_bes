@@ -44,7 +44,7 @@ def apdcam_channel_list(camera_type,sensor_rotation):
         else:
             chmap = apdcam_channel_map(sensor_rotation=90)
     elif (camera_type == 'APDCAM-10G'):
-        chmap = apdcam10g_channel_map(camera_type='8x8',camera_version=1)
+        chmap = apdcam10g_channel_map(camera_type='8x8',camera_version=0)
     else:
         raise ValueError("Internal error, unknown camera type.")
     return chmap
