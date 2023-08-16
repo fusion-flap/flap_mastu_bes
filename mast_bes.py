@@ -311,7 +311,6 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
 
         for i,ch in enumerate(ADC_proc):
             d = np.array(MAST_file['xbt']['channel{:02d}'.format(ch)], dtype=float)
-            d = np.flip(d)
             d = d[read_samplerange[0]: read_samplerange[0] + ndata_read]
             if (scale_to_volts):
                 d = ((2. ** camera_info['APDCAM_bits'] - 1) - d) / (2. ** camera_info['APDCAM_bits'] - 1) * 2
