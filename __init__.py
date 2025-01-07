@@ -6,6 +6,4 @@ Created on Fri Aug 11 14:43:14 2023
 """
 
 from .mast_bes import register
-
-
-
+from . import mastu_diagnostics
