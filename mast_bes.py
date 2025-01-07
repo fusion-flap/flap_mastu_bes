@@ -48,22 +48,22 @@ def apdcam_channel_list(camera_type,sensor_rotation):
     else:
         raise ValueError("Internal error, unknown camera type.")
     return chmap
-            
+
 
 def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, coordinates=None, data_source=None):
-    """ 
+    """
     Data read function for MAST and MAST-U BES diagnostic.
-    
+
     Parameters
     ----------
-    exp_id: Shot number or string. If string it has to be in yyyymmdd.xxx format and this reads early 
-            measurements in 2022-23.
+    exp_id: Shot number or string. If string it has to be in yyyymmdd.xxx format and this reads early
+            measurements in 2022-23. 
     data_name: string or list of strings
                ADCxxx: ADC number. Unix style regular expressions are allowed:
                        ADC*
                        ADC[2-5]
                        Can also be a list of data names, eg. ['ADC1','ADC3']
-               BES-r-c (string): APD pixel at row r, column c realtive to upper left corner as looking onto 
+               BES-r-c (string): APD pixel at row r, column c realtive to upper left corner as looking onto
                        the detector.
     coordinates: List of flap.Coordinate() or a single flap.Coordinate
                  Defines read ranges. The following coordinates are interpreted:
@@ -74,12 +74,23 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     options: dict
         'Scaling':  'Digit'
                     'Volt'
-        'Datapath': Data path (string)
+        'Cache directory' (str):
+            - If provided, the given path will be used as the cache directory.
+            - If not provided, and 'Download' data is True, the data will be
+              downloaded into memory but not cached.
+        'Download data' (bool):
+            - False: Do not download anything, only use data from 'Datapath'.
+            - True: Download data from source specified in elements 'Server' and 'Server
+              port' of the '[pyUDA]' section in the options.
+        'Datapath': Data path (string), only used if caching and downloading are
+                    not enabled.
+        'Server' (default=None): str, Server to download from.
+        'Server port' (default=None): str, Server port to use.
         'Resample': Resample to this frequency [Hz]. Only frequencies below the sampling frequency can be used.
-                    The frequency will be rounded to the integer times the sampling frequency. 
+                    The frequency will be rounded to the integer times the sampling frequency.
                     Data will be averaged in blocks and the variance in blocks will be added as error.
-        'Test measurement': 
-   
+        'Test measurement':
+
     Return value
     ------------
     flap.DataObject:
@@ -87,34 +98,156 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         If only 1 channel is requested: 1D
         If any of the channels is ADCxxx or the requested channels do not form a 2D array: 2D
         If the requested channels form a regular 2D subarray of it: 3D
-            
-    """ 
-    
+
+    """
+
     if (exp_id is None):
         raise ValueError('exp_id should be set for MAST data.')
     default_options = {'Datapath': 'data',
+                       'Download data': False,
+                       'Cache directory': None,
                        'Scaling':'Digit',
                        'Offset timerange': [-0.1,-0.01],
                        'Resample' : None,
                        'Test measurement': False
                        }
     _options = flap.config.merge_options(default_options,options,data_source='MAST_BES')
+
+    if _options['Download data'] in [True, False]:
+        download_file = _options['Download data']
+    else:
+        raise ValueError(f"Option 'Download data' has invalid value: {_options['Download data']}")
     
-    # Checking if data path/file exists
-    datapath = _options['Datapath']
+    if _options['Cache directory'] is None:
+        cache_used = False
+        if not download_file:
+            # Use old behaviour, no cache, no download
+            datapath = _options['Datapath']
+        else:
+            # Download but do not cache
+            datapath = None
+    else:
+        # Use cache, not datapath
+        cache_used = True
+        datapath = _options['Cache directory']
+        if not isinstance(datapath, str):
+            raise ValueError(f"Invalid cache directory '{datapath}'.")
+    
+    def file_name_from_shot_number(shot_number, is_test_measurement=False):
+        shotstring = str(shot_number).zfill(6)
+        if not is_test_measurement:
+            return f'xbt{shotstring}.nc'
+        else:
+            return f'xbtz{shotstring}.nc'
+
+    def build_MAST_BES_download_path(shot_number, is_test_measurement=False):
+        file_name = file_name_from_shot_number(shot_number, is_test_measurement)
+        return f'$MAST_DATA/{shot_number}/LATEST/{file_name}'
+
     if (type(exp_id) is int):
-        if (_options['Test measurement']):
-            datafile = os.path.join(datapath,'xbtz{:06d}.nc'.format(exp_id))
-        else:    
-            datafile = os.path.join(datapath,'xbt{:06d}.nc'.format(exp_id))
+        file_name = file_name_from_shot_number(
+            exp_id,
+            is_test_measurement=_options['Test measurement']
+        )
+
+        if cache_used:
+            shotstring = str(exp_id).zfill(6)
+            datafile = os.path.join(datapath, shotstring, file_name)
+
+            # Decide whether cache exists and is valid
+            print("Caching is enabled. Looking for cached file.")
+
+            shot_folder = os.path.join(datapath, shotstring)
+            if not (os.path.exists(shot_folder)):
+                try:
+                    os.mkdir(shot_folder)
+                except Exception as e:
+                    raise SystemError("The shot folder cannot be created. Cache directory might not be present.") from e
+
+            if os.path.isfile(datafile):
+                try:
+                    test_open_MAST_file = h5py.File(datafile, "r")
+                    test_open_MAST_file.close()
+                    print(f"Using cached '{datafile}'")
+                    download_file = False
+                except:
+                    print(f"Existing file '{datafile}' could not be opened, might be corrupt. Deleting and redownloading.")
+                    os.remove(datafile)
+            else:
+                print(f"Could not find cached file '{datafile}'.")
+
+        else:
+            if datapath is not None:
+                datafile = os.path.join(datapath, file_name)
+                if (not os.path.exists(datafile)):
+                    raise ValueError("Cannot find datafile: {:s}".format(datafile))
+                else:
+                    print(f"Using datafile '{datafile}'.")
+
+
+        if download_file:
+            default_pyuda_options = {
+                'Server': None,
+                'Server port': None,
+            }
+
+            pyuda_options = flap.config.merge_options(
+                default_pyuda_options,
+                {},
+                data_source=data_source,
+                section='pyUDA')
+            
+            print("Downloading via pyUDA...")
+            try:
+                if pyuda_options['Server port'] is None:
+                    raise ValueError("Server port is None.")
+                if pyuda_options['Server'] is None:
+                    raise ValueError("Server is None.")
+
+                print(f"Downloading from {pyuda_options['Server']}:{pyuda_options['Server port']}")
+
+                print("Opening connection...")
+                # This replicates the pyuda wrappers from _client.py in order to
+                # enable saving a file to memory
+
+                import cpyuda
+                cpyuda.set_server_host_name(pyuda_options['Server'])
+                cpyuda.set_server_port(pyuda_options['Server port'])
+
+                print("Downloading...")
+                source_file = build_MAST_BES_download_path(
+                    exp_id,
+                    is_test_measurement=_options['Test measurement']
+                )
+
+                result = cpyuda.get_data("bytes::read(path=%s)" % source_file, "")
+
+                if cache_used:
+                    with open(datafile, 'wb') as f_out:
+                        result.data().tofile(f_out)
+                    print(f"Saved to '{datafile}'.")
+                else:
+                    import io
+                    datafile = io.BytesIO(result.data())
+                    print("Storing downloaded file in memory, not writing to disk.")
+                
+                # Try to free up some memory
+                del result
+
+                print("Download complete.")
+                cpyuda.close_connection()
+                print("Connection closed.")
+
+            except Exception as e:
+                raise RuntimeError("pyUDA download failed.") from e
+
         temp_data = False
-        if (not os.path.exists(datafile)):
-            raise ValueError("Cannot find datafile: {:s}".format(datafile))
+
     elif (type(exp_id) is str):
-        datadir = os.path.join(datapath,exp_id)
+        datadir = os.path.join(datapath, exp_id)
         temp_data = True
         if (not os.path.exists(datadir)):
-            raise ValueError("Cannot find test data directory: {:s}".format(datafile))       
+            raise ValueError("Cannot find test data directory: {:s}".format(datafile))
     else:
         raise ValueError("exp_id should be integer (normal shot) a string of format yyyymmdd.xxx (test shot).")
 
@@ -136,7 +269,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         camera_info['APDCAM_sampletime'] = (time_vector[-1] - time_vector[0]) / (len(time_vector - 1))
     else:
         raise NotImplementedError("Reading temporary MAST-U BES data is not implemented yet.")
-    
+
     # Ensuring that the data name is a list
     if type(data_name) is not list:
         chspec = [data_name]
@@ -163,7 +296,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     try:
         chname_proc, ch_index = flap.select_signals(ch_names,chspec)
     except ValueError as e:
-        raise e     
+        raise e
     if (len(col_list) != 0):
         col_proc = [col_list[i] for i in ch_index]
     if (len(row_list) != 0):
@@ -184,7 +317,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
             out_row_list = sorted(set(row_proc))
             out_col_list = sorted(set(col_proc))
             if ((len(out_col_list) * len(out_row_list) != len(chname_proc))
-                or (len(out_col_list) == 1) or  (len(out_row_list) == 1)  
+                or (len(out_col_list) == 1) or  (len(out_row_list) == 1)
                 ):
                 outdim = 2
             else:
@@ -286,26 +419,26 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
 
     ndata_read = int(read_samplerange[1] - read_samplerange[0] + 1)
     if (_options['Resample'] is not None):
-        ndata_out = int(ndata_read / resample_binsize) 
+        ndata_out = int(ndata_read / resample_binsize)
         ndata_read = ndata_out * resample_binsize
     else:
         ndata_out = ndata_read
 
     # Determining data array shape
     if (outdim == 1):
-        data_shape = (ndata_out) 
+        data_shape = (ndata_out)
     elif (outdim == 2):
         data_shape = (ndata_out,len(ADC_proc))
     else:
         data_shape = (ndata_out,len(out_row_list),len(out_col_list))
-        
+
     if (no_data is False):
         if ndata_out * len(ADC_proc) * number_size > psutil.virtual_memory().available:
             raise MemoryError("Not enough memory for reading data")
 
-        data_arr = np.empty(data_shape,dtype=dtype) 
+        data_arr = np.empty(data_shape,dtype=dtype)
         if (_options['Resample'] is not None):
-            error_arr = np.empty(data_shape,dtype=dtype) 
+            error_arr = np.empty(data_shape,dtype=dtype)
         else:
             error_arr = None
 
@@ -345,7 +478,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                 data_arr[:,out_row_index[i],out_col_index[i]] = d
     else:
         data_arr = None
-    
+
     coord = []
 
     if (read_range is None):
@@ -366,7 +499,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                                  dimension_list=[0]
                                  )
                  )
-   
+
     c_mode = flap.CoordinateMode(equidistant=True)
     if (_options['Resample'] is not None):
         s_start = read_samplerange[0] + resample_binsize / 2
@@ -490,17 +623,17 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                                      dimension_list=[2]
                                      )
                      )
-        
+
     data_title = "MAST BES data"
     if (data_arr.ndim == 1):
         data_title += ", " + chname_proc[0]
     d = flap.DataObject(data_array=data_arr,error=error_arr,data_unit=data_unit,
                         coordinates=coord, exp_id=exp_id,data_title=data_title,info=camera_info)
     return d
-           
 
 
-    
+
+
 def register(data_source=None):
     flap.register_data_source('MAST_BES', get_data_func=get_data_mast_bes, add_coord_func=None)
 
