@@ -76,7 +76,8 @@ def get_data_mastu(
         'Detect zero error' : True,
         'atol' : 1e-12,
         'rtol' : 1e-9,
-        'Coordinate remapping' : {'names': {}, 'units': {}},
+        # This will be evaluated by ast.literal_eval:
+        'Coordinate remapping' : "{'names': {}, 'units': {}}",
     }
 
     _options = flap.config.merge_options(
