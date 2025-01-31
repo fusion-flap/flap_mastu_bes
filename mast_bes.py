@@ -86,10 +86,18 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                     not enabled.
         'Server' (default=None): str, Server to download from.
         'Server port' (default=None): str, Server port to use.
+        'Offset timerange': (default=[-0.1,-0.01]):
+            - list of two values: [start, end]. The time range used for offset calculation.
+            - None: No offset calculation.
         'Resample': Resample to this frequency [Hz]. Only frequencies below the sampling frequency can be used.
                     The frequency will be rounded to the integer times the sampling frequency.
                     Data will be averaged in blocks and the variance in blocks will be added as error.
-        'Test measurement':
+        'Remove sharp peaks': (default=False):
+            - True: Remove sharp peaks from the data automatically during import
+              using the `remove_sharp_peaks` function in FLAP. Options for
+              `remove_sharp_peaks` must be set in the [Denoising] section.
+            - False: Do nothing.
+        'Test measurement': bool, default=False
 
     Return value
     ------------
@@ -109,6 +117,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                        'Scaling':'Digit',
                        'Offset timerange': [-0.1,-0.01],
                        'Resample' : None,
+                       'Remove sharp peaks': False,
                        'Test measurement': False
                        }
     _options = flap.config.merge_options(default_options,options,data_source='MAST_BES')
@@ -629,6 +638,11 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         data_title += ", " + chname_proc[0]
     d = flap.DataObject(data_array=data_arr,error=error_arr,data_unit=data_unit,
                         coordinates=coord, exp_id=exp_id,data_title=data_title,info=camera_info)
+
+    if _options['Remove sharp peaks']:
+        print('Performing sharp peak removal...')
+        d = d.remove_sharp_peaks()
+
     return d
 
 
