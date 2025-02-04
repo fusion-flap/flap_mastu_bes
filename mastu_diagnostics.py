@@ -117,6 +117,10 @@ def get_data_mastu(
     # https://stackoverflow.com/a/71199182
     file_name = re.sub(r"[/\\?%*:|\"<>\x7F\x00-\x1F]", "-", data_name) + '.hdf5'
 
+    # Remove leading '-' if present to make matters easier
+    if file_name[0] == '-':
+        file_name = file_name[1:]
+
     if cache_used:
         shotstring = str(exp_id).zfill(6)
         datafile = os.path.join(datapath, shotstring, file_name)
@@ -152,6 +156,7 @@ def get_data_mastu(
                 print(f"Using datafile '{datafile}'.")
 
     if download_file:
+        print("Downloading via pyUDA...")
         default_pyuda_options = {
             'Server': None,
             'Server port': None,
@@ -163,7 +168,6 @@ def get_data_mastu(
             data_source=data_source,
             section='pyUDA')
         
-        print("Downloading via pyUDA...")
         try:
             if pyuda_options['Server port'] is None:
                 raise ValueError("Server port is None.")
