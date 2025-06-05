@@ -78,6 +78,28 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
             - If provided, the given path will be used as the cache directory.
             - If not provided, and 'Download' data is True, the data will be
               downloaded into memory but not cached.
+        'Calibrate amplitudes' (bool):
+            - False: Do not apply any calibration
+            - True: Apply calibration based on the given parameters.
+        'Calibration exact coordinates' (list of str, default=['APDCam_viewRadius']):
+            - Calibration coordinates that are to be matched exactly.
+        'Calibration nearby coordinates' (list of str, default=['APDCam_biasSet0', 'APDCam_biasSet1', 'filter_temperature_read', 'SS_voltage_99']):
+            - Calibration coordinates which will be used for selecting the
+              closest match between those reference measurements that fit the
+              exactly matced coordinates.
+        'Calibration file' (str):
+            - If given, this file is used as the reference measurement in the
+              calibration procedure, without any matching. Cannot be used
+              simultaneously with 'Calibration directory'.
+        'Calibration directory' (str):
+            - If given, the calibration reference files in this directory are used to
+              construct a database, and the best match is selected based on the
+              nearby and exactly matched coordinates given in the options.
+              Cannot be used simultaneously with 'Calibration file'.
+        'Calibration voltage reference' (float, default=1):
+            - Only values higher than the reference will be considered when
+              determining the 99th percentile voltage value that is considered as
+              the nominal beam voltage. Dimension: Volts.
         'Download data' (bool):
             - False: Do not download anything, only use data from 'Datapath'.
             - True: Download data from source specified in elements 'Server' and 'Server
@@ -114,6 +136,12 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     default_options = {'Datapath': 'data',
                        'Download data': False,
                        'Cache directory': None,
+                       'Calibrate amplitudes': False,
+                       'Calibration exact coordinates': ['APDCam_viewRadius'],
+                       'Calibration nearby coordinates': ['APDCam_biasSet0', 'APDCam_biasSet1', 'filter_temperature_read', 'SS_voltage_99'],
+                       'Calibration file': None,
+                       'Calibration directory' : None,
+                       'Calibration voltage reference': 1,
                        'Scaling':'Digit',
                        'Offset timerange': [-0.1,-0.01],
                        'Resample' : None,
@@ -142,6 +170,9 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         if not isinstance(datapath, str):
             raise ValueError(f"Invalid cache directory '{datapath}'.")
     
+    if (_options['Calibration directory'] is not None) and (_options['Calibration file'] is not None):
+        raise ValueError("Both of the options 'Calibration directory' and 'Calibration file' are set: these are mutually exclusive options, only one can be set.")
+
     def file_name_from_shot_number(shot_number, is_test_measurement=False):
         shotstring = str(shot_number).zfill(6)
         if not is_test_measurement:
@@ -642,6 +673,14 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     if _options['Remove sharp peaks']:
         print('Performing sharp peak removal...')
         d = d.remove_sharp_peaks()
+
+    if _options['Calibrate amplitudes']:
+        if _options['Calibration file'] is not None:
+            # TODO
+            raise NotImplementedError()
+        elif _options['Calibration directory'] is not None:
+            # TODO
+            raise NotImplementedError()
 
     return d
 
