@@ -63,8 +63,9 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                        ADC*
                        ADC[2-5]
                        Can also be a list of data names, eg. ['ADC1','ADC3']
-               BES-r-c (string): APD pixel at row r, column c realtive to upper left corner as looking onto
-                       the detector.
+               BES-r-c (string): APD pixel at row r, column c. Numbering
+                                 convention is determined by the 'Use deployment
+                                 channel numbering' option: see below.
     coordinates: List of flap.Coordinate() or a single flap.Coordinate
                  Defines read ranges. The following coordinates are interpreted:
                      'Sample': The read samples
@@ -120,6 +121,11 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
               `remove_sharp_peaks` must be set in the [Denoising] section.
             - False: Do nothing.
         'Test measurement': bool, default=False
+        'Use deployment numbering' : bool, default=True
+            - False: Use channel numbering as the flap_apdcam library returns it
+              (relative to the upper left corner of the detector viewed from the
+              front)
+            - True: Use channel numbering in the deployement configuration, if available
 
     Return value
     ------------
@@ -146,7 +152,8 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                        'Offset timerange': [-0.1,-0.01],
                        'Resample' : None,
                        'Remove sharp peaks': False,
-                       'Test measurement': False
+                       'Test measurement': False,
+                       'Use deployment channel numbering': True,
                        }
     _options = flap.config.merge_options(default_options,options,data_source='MAST_BES')
 
@@ -317,6 +324,12 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         chspec = data_name
     # Finding the desired channels
     chmap = apdcam_channel_list(camera_type,sensor_rotation)
+    if _options['Use deployment channel numbering']:
+        if camera_type == 'APDCAM-10G' and np.all(camera_info['genCameraSerial'] == np.asarray([0,0,0,4], dtype='int8')):
+            # Per the installation on MAST-U, as of the MU04 campaign
+            chmap = chmap.T
+        else:
+            raise ValueError(f"For camera type {camera_type} and serial {camera_info['genCameraSerial']}, no deployment channel numbering is available. Set the option 'Use deployment channel numbering' to False, or implement a deployment channel numbering in 'mast_bes.py' for this configuration.")
     ch_names = []
     adc_list = []
     row_list = []
