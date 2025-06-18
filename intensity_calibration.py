@@ -415,7 +415,6 @@ class CalibrationDatabase():
                     raise ValueError(f"The coordinates to be closely matched are all identical for the exactly matched combination {uem}, for reference instances with indices: {list(index)}.")
             else:
                 coords_nontrivial_dimless = (reduced[:, indices_with_range] - scale_min[np.newaxis, indices_with_range]) / (scale_max[np.newaxis, indices_with_range] - scale_min[np.newaxis, indices_with_range])
-                print(f'{coords_nontrivial_dimless=}')
                 
                 kdtree_dimless = KDTree(coords_nontrivial_dimless)
 
@@ -487,8 +486,6 @@ class CalibrationDatabase():
 
         # Scale it appropriately
         query_coords_nontrivial_dimless = (query_reduced_only_range - scale_min) / (scale_max - scale_min)
-
-        print(f'{query_coords_nontrivial_dimless=}')
 
         # Find the match
         dist, nearest_i = kdtree_dimless.query(query_coords_nontrivial_dimless)
