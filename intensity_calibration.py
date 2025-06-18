@@ -172,6 +172,10 @@ class CalibrationReference:
             shots_folder_bes = None
             
         if shots_folder_bes is not None:
+            # Do this to trigger downloading
+            d = flap.get_data('MAST_BES', shotnumber, 'BES-5-5')
+
+            # Filter temperature is not available in the DataObject.info
             nc_file = os.path.join(shots_folder_bes, shotstring, file_name_from_shot_number(shotnumber))
                                
             with h5py.File(nc_file) as f:
