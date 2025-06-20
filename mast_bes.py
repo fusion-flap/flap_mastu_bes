@@ -740,7 +740,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
             calibration_filename = valid_calibration_filenames[nearest_match_i]
             calibration_cref = nearest_match
             
-            print(f'Found match in database ({match_dist:0.02f}): {calibration_filename}')
+            print(f'Found match in database (distance: {match_dist:0.02f}): {calibration_filename}')
 
         elif _options['Calibration file'] is not None:
             calibration_filename = _options['Calibration file']

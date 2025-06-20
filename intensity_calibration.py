@@ -173,7 +173,7 @@ class CalibrationReference:
             
         if shots_folder_bes is not None:
             # Do this to trigger downloading
-            d = flap.get_data('MAST_BES', shotnumber, 'BES-5-5')
+            _ = flap.get_data('MAST_BES', shotnumber, 'BES-5-5', options={'Calibrate intensity' : False})
 
             # Filter temperature is not available in the DataObject.info
             nc_file = os.path.join(shots_folder_bes, shotstring, file_name_from_shot_number(shotnumber))
@@ -393,7 +393,7 @@ class CalibrationDatabase():
             scale_min = reduced.min(axis=0)
             scale_max = reduced.max(axis=0)
 
-            if non_matched_references is not None:
+            if (non_matched_references is not None) and (len(nm_reduced) > 0):
                 # Take the non-matched references into account as well (this is their only purpose)
                 scale_min = np.min([scale_min, np.min(nm_reduced, axis=0)], axis=0)
                 scale_max = np.max([scale_max, np.max(nm_reduced, axis=0)], axis=0)
