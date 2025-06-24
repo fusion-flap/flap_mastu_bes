@@ -12,6 +12,7 @@ import numpy as np
 import copy
 import h5py
 import psutil
+import warnings
 
 import flap
 from flap_apdcam.apdcam_control import apdcam_channel_map,apdcam10g_channel_map
@@ -270,6 +271,13 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     if (not temp_data):
         MAST_file = h5py.File(datafile, "r")
         camera_type,camera_info = get_camera_info(MAST_file)
+
+        # Check if clkSource is external or not:
+        clkSource = int(camera_info['clkSource'][0])
+
+        if clkSource == 0:
+            warnings.warn(f'WARNING: internal clock source has been used for shot {exp_id}. (clkSource={clkSource})', stacklevel=3)
+
         if (camera_type == 'APDCAM-1G'):
             if (camera_info['genCameraSerial'][3] == 4):
                 sensor_rotation = 0
