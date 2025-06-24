@@ -250,7 +250,7 @@ class CalibrationReference:
             raise ValueError("Only method 'mean' is supported currently.")
 
         # Convert ndarray to list so it can be serialized later
-        self.calibration_multiplier_matrix = (np.max(cal_data.data) / cal_data.data).tolist()
+        self.calibration_multiplier_matrix = (1 / cal_data.data).tolist()
     
 class CalibrationDatabase():
     """Calibration database for storing CalibrationReference objects and finding
