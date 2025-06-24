@@ -753,7 +753,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
             cref_chmap = np.array(calibration_cref.calibration_source['channel_map'])
             if np.all(chmap == cref_chmap):
                 # calibration multiplier matrix array
-                cmma = np.array(cref.calibration_multiplier_matrix)
+                cmma = np.array(calibration_cref.calibration_multiplier_matrix)
                 if outdim == 3:
                     if d.data.shape == (8,8):
                         d.data *= cmma
