@@ -232,9 +232,9 @@ def get_data_mastu(
             if np.allclose(file['errors'], 0, atol=atol):
                 error = None
             else:
-                error = file['errors']
+                error = np.array(file['errors'])
         else:
-            error = file['errors']
+            error = np.array(file['errors'])
         
         # Unit of the data
         data_unit = flap.Unit(name='Signal', unit=file['data'].attrs['unit'])
