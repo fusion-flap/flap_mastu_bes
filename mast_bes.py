@@ -12,6 +12,7 @@ import numpy as np
 import copy
 import h5py
 import psutil
+import itertools
 import warnings
 
 import flap
@@ -80,6 +81,28 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
             - If provided, the given path will be used as the cache directory.
             - If not provided, and 'Download' data is True, the data will be
               downloaded into memory but not cached.
+        'Calibrate intensity' (bool):
+            - False: Do not apply any calibration
+            - True: Apply calibration based on the given parameters.
+        'Calibration exact coordinates' (list of str, default=['APDCam_viewRadius']):
+            - Calibration coordinates that are to be matched exactly.
+        'Calibration nearby coordinates' (list of str, default=['APDCam_biasSet0', 'APDCam_biasSet1', 'filter_temperature_read', 'SS_voltage_99']):
+            - Calibration coordinates which will be used for selecting the
+              closest match between those reference measurements that fit the
+              exactly matced coordinates.
+        'Calibration file' (str):
+            - If given, this file is used as the reference measurement in the
+              calibration procedure, without any matching. Cannot be used
+              simultaneously with 'Calibration directory'.
+        'Calibration directory' (str):
+            - If given, the calibration reference files in this directory are used to
+              construct a database, and the best match is selected based on the
+              nearby and exactly matched coordinates given in the options.
+              Cannot be used simultaneously with 'Calibration file'.
+        'Calibration beam voltage reference' (float, default=1):
+            - Only values higher than the reference will be considered when
+              determining the 99th percentile voltage value that is considered as
+              the nominal beam voltage. Dimension: Volts.
         'Download data' (bool):
             - False: Do not download anything, only use data from 'Datapath'.
             - True: Download data from source specified in elements 'Server' and 'Server
@@ -121,6 +144,12 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     default_options = {'Datapath': 'data',
                        'Download data': False,
                        'Cache directory': None,
+                       'Calibrate intensity': False,
+                       'Calibration exact coordinates': ['APDCam_viewRadius'],
+                       'Calibration nearby coordinates': ['APDCam_biasSet0', 'APDCam_biasSet1', 'filter_temperature_read', 'SS_voltage_99'],
+                       'Calibration file': None,
+                       'Calibration directory' : None,
+                       'Calibration beam voltage reference': 1,
                        'Scaling':'Digit',
                        'Offset timerange': [-0.1,-0.01],
                        'Resample' : None,
@@ -150,6 +179,9 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         if not isinstance(datapath, str):
             raise ValueError(f"Invalid cache directory '{datapath}'.")
     
+    if (_options['Calibration directory'] is not None) and (_options['Calibration file'] is not None):
+        raise ValueError("Both of the options 'Calibration directory' and 'Calibration file' are set: these are mutually exclusive options, only one can be set.")
+
     def file_name_from_shot_number(shot_number, is_test_measurement=False):
         shotstring = str(shot_number).zfill(6)
         if not is_test_measurement:
@@ -309,6 +341,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
             raise ValueError(f"For camera type {camera_type} and serial {camera_info['genCameraSerial']}, no deployment channel numbering is available. Set the option 'Use deployment channel numbering' to False, or implement a deployment channel numbering in 'mast_bes.py' for this configuration.")
     ch_names = []
     adc_list = []
+    adc_rc_list = []
     row_list = []
     col_list = []
     nrow = chmap.shape[0]
@@ -323,6 +356,8 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
             col_list.append(None)
             adc_list.append(chmap[ir,ic])
             adc_list.append(chmap[ir,ic])
+            adc_rc_list.append((ir,ic))
+            adc_rc_list.append((ir,ic))
     try:
         chname_proc, ch_index = flap.select_signals(ch_names,chspec)
     except ValueError as e:
@@ -332,6 +367,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
     if (len(row_list) != 0):
         row_proc = [row_list[i] for i in ch_index]
     ADC_proc = [adc_list[i] for i in ch_index]
+    ADC_rc_proc = [adc_rc_list[i] for i in ch_index]
 
     # Determining the dimension of the output data array
     if (len(chname_proc) == 1):
@@ -664,10 +700,88 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         print('Performing sharp peak removal...')
         d = d.remove_sharp_peaks()
 
+    if _options['Calibrate intensity']:
+        from .intensity_calibration import CalibrationReference, CalibrationDatabase
+        calibration_filename = None
+        calibration_cref = None
+        if _options['Calibration directory'] is not None:
+            calibration_dir = _options['Calibration directory']
+            print(f'Using intensity calibration directory {calibration_dir} to find proper match')
+
+            possible_calibration_filenames = [
+                os.path.join(calibration_dir, node)
+                for node
+                in os.listdir(calibration_dir)
+                if (os.path.isfile(os.path.join(calibration_dir, node)) and node.endswith('.json'))
+            ]
+
+            calibration_refs = []
+            valid_calibration_filenames = []
+            for fname in possible_calibration_filenames:
+                try:
+                    with open(fname, 'r') as f:
+                        cref = CalibrationReference.from_json(f.read())
+                        if cref.calibration_multiplier_matrix is None:
+                            warnings.warn(f"Unable to import calibration reference file {fname}. (No calibration multiplier matrix found.)")
+                        else:
+                            calibration_refs.append(cref)
+                            valid_calibration_filenames.append(fname)
+                except Exception as e:
+                    warnings.warn(f"Unable to import calibration reference file {fname}. ({e})")
+                    
+            actual_ref = CalibrationReference.from_MAST_U_shot(
+                exp_id,
+                beam_voltage_threshold_SI=_options['Calibration beam voltage reference'],
+            )
+
+            cdb = CalibrationDatabase(
+                calibration_refs,
+                exactly_matched_coordinates=_options['Calibration exact coordinates'],
+                closely_matched_coordinates=_options['Calibration nearby coordinates'],
+                exactly_matched_round_to_decimals=2,
+                non_matched_references=[actual_ref],
+            )
+
+            match_dist, nearest_match_i, nearest_match = cdb.find_nearest_match(actual_ref)
+
+            calibration_filename = valid_calibration_filenames[nearest_match_i]
+            calibration_cref = nearest_match
+            
+            print(f'Found match in database (distance: {match_dist:0.02f}): {calibration_filename}')
+
+        elif _options['Calibration file'] is not None:
+            calibration_filename = _options['Calibration file']
+            with open(calibration_filename) as f:
+                calibration_cref = CalibrationReference.from_json(f.read())
+        else:
+            raise ValueError(f"Option 'Calibrate intensity' is True, but neither option 'Calibration file' nor option 'Calibration directory' are set.")
+
+        if (calibration_filename is not None) and (calibration_cref is not None):
+            cref_chmap = np.array(calibration_cref.calibration_source['channel_map'])
+            if np.all(chmap == cref_chmap):
+                # calibration multiplier matrix array
+                cmma = np.array(calibration_cref.calibration_multiplier_matrix)
+                if outdim == 3:
+                    if d.data.shape == (8,8):
+                        d.data *= cmma
+                    else:
+                        out_row_list_i = np.array(out_row_list) - 1
+                        out_col_list_i = np.array(out_col_list) - 1
+                        d.data *= cmma[np.ix_(out_row_list_i, out_col_list_i)]
+                elif outdim == 2:
+                    d.data *= cmma[*np.array(ADC_rc_proc).T]
+                    pass
+                elif outdim == 1:
+                    d.data *= cmma[*ADC_rc_proc[0]]
+                else:
+                    raise RuntimeError('This should never happen: outdim != 1, 2, or 3.')
+
+                d.data_unit.unit = 'n.a.'
+                print(f'Applied intensity calibration from {calibration_filename}')
+            else:
+                raise ValueError('Channel map in current data and reference calibration file do not match.')
+
     return d
-
-
-
 
 def register(data_source=None):
     flap.register_data_source('MAST_BES', get_data_func=get_data_mast_bes, add_coord_func=None)
