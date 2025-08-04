@@ -195,14 +195,21 @@ def get_data_mastu(
             if not cache_used:
                 datafile = io.BytesIO()
 
-            # elkészíteni a h5py objektumot
+            # Build the h5py object
             with h5py.File(datafile, 'w') as f:
                 dset = f.create_dataset("data", data=result.data)
                 dset.attrs['pyuda_type'] = 'Signal'
                 dset.attrs['description'] = result.description
                 dset.attrs['label'] = result.label
                 dset.attrs['rank'] = result.rank
-                dset.attrs['time_index'] = result.time_index
+                # Sometimes, time_index is None: None cannot be 
+                # stored in a h5py attribute, as it becomes an
+                # object-dtype ndarray
+                if result.time_index is not None:
+                    dset.attrs['time_index'] = result.time_index
+                else:
+                    dset.attrs['time_index'] = np.asarray(result.time_index, 'float')
+
                 dset.attrs['unit'] = result.units
 
                 dset_errors = f.create_dataset("errors", data=result.errors)
