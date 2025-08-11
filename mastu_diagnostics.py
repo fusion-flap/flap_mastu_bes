@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import copy
 
 import numpy as np
 import h5py
@@ -12,6 +13,79 @@ import ast
 def is_array_equidistant(a, rtol, atol):
     d = np.diff(a)
     return np.allclose(d, d[0], rtol=rtol, atol=atol)
+
+def convert_to_equidistant(
+    data_object,
+    coordinate_name,
+    rtol=1e-05,
+    atol=1e-08
+):
+    """Convert a non-equidistant coordinate of a DataObject to equidistant, if
+    possible.
+    
+    Conversion is only performed if the observed sampling times are
+    constant within the defined tolerances.
+
+    Parameters
+    ----------
+    data_object : flap.DataObject
+        The DataObject to modify.
+    coordinate_name : str
+        The name of the coordinate to be converted into equidistant mode.
+    rtol : float, optional, default=1e-05
+        Relative tolerance, rtol parameter of np.isclose().
+    atol : float, optional, default=1e-08
+        Absolute tolerance, atol parameter of np.isclose().
+
+    Returns
+    -------
+    DataObject
+        A new DataObject with the appropriate coordinate converted to equidistant.
+    """
+    
+    if data_object.get_coordinate_object(coordinate_name).mode.equidistant:
+        # Nothing to do
+        return copy.deepcopy(data_object)
+    
+    _data_object = copy.deepcopy(data_object)
+    
+    coord_ref = _data_object.get_coordinate_object(coordinate_name)
+
+    time = _data_object.coordinate(coordinate_name)[0]
+
+    diff = np.diff(time)
+    
+    try:
+        assert np.all(np.isclose(diff, diff[0], rtol=rtol, atol=atol))
+    except AssertionError:
+        raise ValueError('Sampling time is not constant within the given tolerances.')
+
+
+    c_mode = flap.CoordinateMode(equidistant=True)
+    
+    start = time[0]
+    step = diff.mean()
+    values = None
+    value_index = None
+
+    coord_equi = flap.Coordinate(
+        name=coord_ref.unit.name,
+        unit=coord_ref.unit.unit,
+        mode=c_mode,
+        shape=len(_data_object.shape),
+        start=start,
+        step=step,
+        values=values,
+        value_index=value_index,
+        dimension_list=coord_ref.dimension_list,
+    )
+
+    for i, c in enumerate(_data_object.coordinates):
+        if c.unit.name == coordinate_name:
+            _data_object.coordinates[i] = coord_equi
+            break
+            
+    return _data_object
 
 def get_data_mastu(
         exp_id,

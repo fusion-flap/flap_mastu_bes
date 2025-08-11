@@ -1,5 +1,9 @@
+import copy
+
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+
+import numpy as np
 
 import flap  # This loads the flap_defaults.cfg in the current working directory
 import flap_mastu_bes
@@ -126,8 +130,14 @@ plt.show()
 # lower super-X divertor D-alpha
 d_XIM_DA_HL02_SXD = flap.get_data('MAST-U', test_shotnumber, name='XIM/DA/HL02/SXD')
 
+# D_alpha - HU10-OSP (outer strike point)
+d_XIM_DA_HU10_OSP = flap.get_data('MAST-U', test_shotnumber, name='XIM/DA/HU10/OSP')
+
 # high-frequency magnetics
 d_ACQ216_202_CH02 = flap.get_data('MAST-U', test_shotnumber, name='XMC/ACQ216_202/CH02')
+
+# low-frequency magnetics
+d_XMB_SANX13_01_CH81 = flap.get_data('MAST-U', test_shotnumber, name='XMB/SANX13-01/CH81')
 
 # Plasma current
 d_IP = flap.get_data('MAST-U', test_shotnumber, name='ip')
@@ -139,27 +149,31 @@ d_SS_POWER = flap.get_data('MAST-U', test_shotnumber, name='ANB-SS-POWER')
 d_xdc_ai_raw_density = flap.get_data('MAST-U', test_shotnumber, name='xdc/ai/raw/density')
 
 
-# Plot them all
-plt.figure(figsize=(4,8))
-gs = GridSpec(5, 1)
+# Plot most of them
+plt.figure(figsize=(4,10))
+gs = GridSpec(6, 1)
 
 ax0 = plt.subplot(gs[0])
-d_XIM_DA_HL02_SXD.plot()
-plt.title('Lower super-X divertor D-alpha')
+d_XIM_DA_HU10_OSP.plot()
+plt.title('D_alpha - HU10-OSP')
 
 plt.subplot(gs[1], sharex=ax0)
+d_XMB_SANX13_01_CH81.plot()
+plt.title('Low-frequency magnetics')
+
+plt.subplot(gs[2], sharex=ax0)
 d_ACQ216_202_CH02.plot()
 plt.title('High-frequency magnetics')
 
-plt.subplot(gs[2], sharex=ax0)
+plt.subplot(gs[3], sharex=ax0)
 d_IP.plot()
 plt.title('Plasma current')
 
-plt.subplot(gs[3], sharex=ax0)
+plt.subplot(gs[4], sharex=ax0)
 d_SS_POWER.plot()
 plt.title('SS beam power')
 
-plt.subplot(gs[4], sharex=ax0)
+plt.subplot(gs[5], sharex=ax0)
 d_xdc_ai_raw_density.plot()
 plt.title('Line-integrated density')
 
@@ -189,3 +203,62 @@ mag_bes_ccf = d_magnetic_interval.ccf(ref=d_single_channel_resampled, coordinate
 mag_bes_ccf.plot(axes=['Time lag'], options={'All points': True})
 plt.title(f'Cross-correlation: magnetics vs. BES channel: {single_channel_name}')
 plt.show()
+
+######################  6  ######################
+
+# Calculations with LF megnetics
+# Problem: sampling is not equidistant in this signal, many FLAP functions will not work
+
+# Demonstration:
+try:
+    d_XMB_SANX13_01_CH81.apsd()
+    print('APSD success!')
+except Exception as e:
+    print(repr(e))
+
+# We see that the Time coordinates are indeed not equidistant:
+flap.list_data_objects(d_XMB_SANX13_01_CH81)
+
+# This can be verified this way as well:
+print(f'{d_XMB_SANX13_01_CH81.coordinates[0].unit.name=}')
+print(f'{d_XMB_SANX13_01_CH81.coordinates[0].mode.equidistant=}')
+
+# Why?
+time = d_XMB_SANX13_01_CH81.coordinate('Time')[0]
+steps = np.diff(time)
+print(f'{np.all(np.isclose(steps,steps[0]))=}')
+print(f'{steps.min()=:.10e}')
+print(f'{steps.max()=:.10e}')
+
+# Let's see the trend:
+plt.figure(figsize=(15,5), dpi=100)
+plt.scatter(time[:-1], steps)
+plt.yscale('log')
+plt.grid('both')
+plt.xlabel('Time [s]')
+plt.ylabel('Sampling interval [s]')
+plt.show()
+
+
+# During the main part of the shot, the sampling  is equidistant.
+# We can convert the time coordinates in this range to equidistant.
+from flap_mastu_bes.mastu_diagnostics import convert_to_equidistant
+
+# Fix a time range where we think the sampling is equidistant
+t_equi_range = [0, 1]
+Mirnov_LF_data_sliced = d_XMB_SANX13_01_CH81.slice_data(
+    slicing={'Time' : flap.Intervals(t_equi_range[0], t_equi_range[1])}
+)
+
+# Convert the Time coordinates to equidistant:
+Mirnov_LF_data_sliced_equi = convert_to_equidistant(Mirnov_LF_data_sliced, 'Time')
+
+# They are indeed equidistant now:
+print(f"{Mirnov_LF_data_sliced_equi.get_coordinate_object('Time').mode.equidistant=}")
+
+# Now, this can be used for APSD and other calculations.
+try:
+    Mirnov_LF_data_sliced_equi.apsd()
+    print('APSD success!')
+except Exception as e:
+    print(repr(e))
