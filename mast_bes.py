@@ -305,20 +305,33 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         camera_type,camera_info = get_camera_info(MAST_file)
 
         # Check if clkSource is external or not:
-        clkSource = int(camera_info['clkSource'][0])
+        if camera_type == 'APDCAM-10G':
+            if 'clkSource' in camera_info:
+                clkSource = int(camera_info['clkSource'][0])
+                if clkSource == 0:
+                    warnings.warn(f'WARNING: internal clock source has been used for shot {exp_id}. (clkSource={clkSource})', stacklevel=3)
+            else:
+                warnings.warn(f'WARNING: no clkSource info for shot {exp_id}.', stacklevel=3)
+        elif camera_type == 'APDCAM-1G':
+            if 'extClk' in camera_info:
+                clkSource = int(camera_info['extClk'][0])
+                if clkSource == 0:
+                    warnings.warn(f'WARNING: internal clock source has been used for shot {exp_id}. (extClk={clkSource})', stacklevel=3)
+            else:
+                warnings.warn(f'WARNING: no extClk info for shot {exp_id}.', stacklevel=3)
+        else:
+            warnings.warn(f'WARNING: no clkSource info for shot {exp_id}.', stacklevel=3)
 
-        if clkSource == 0:
-            warnings.warn(f'WARNING: internal clock source has been used for shot {exp_id}. (clkSource={clkSource})', stacklevel=3)
+
 
         if (camera_type == 'APDCAM-1G'):
-            if (camera_info['genCameraSerial'][3] == 4):
-                sensor_rotation = 0
-            elif (camera_info['genCameraSerial'][3] == 5):
-                sensor_rotation = 90
-            else:
-                raise ValueError('Unknown APDCAM-1G serial number: {:d}.'.format(camera_info['genCameraSerial'][3]))
-        else:
+            # Full renumbering, see below
+            pass
+        elif camera_type == 'APDCAM-10G':
             sensor_rotation = 0
+        else:
+            raise ValueError(f'Unknown {camera_type=}')
+
         time_vector = MAST_file['time1'][()]
         camera_info['APDCAM_samplenumber'] = len(time_vector)
         camera_info['APDCAM_starttime'] = time_vector[0]
@@ -331,12 +344,39 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         chspec = [data_name]
     else:
         chspec = data_name
+
     # Finding the desired channels
-    chmap = apdcam_channel_list(camera_type,sensor_rotation)
+    if (camera_type == 'APDCAM-1G'):
+        # D. Dunai: APDCam ADC channel numbers were remapped in-software to this schema (paper logbook):
+        # Channel map: 'as one looks onto the detector from the camera front'
+        # (per flap_apdcam/apdcam_control/apdcam_channel_map:24)
+        if (camera_info['serial'][0] == 2):
+            chmap = np.array([[14,  5,  3, 12],
+                              [ 7,  6,  4,  2],
+                              [16, 13,  1, 10],
+                              [15,  8, 11,  9],
+                              [24, 22, 25, 18],
+                              [23, 32, 20, 17],
+                              [31, 29, 27, 26],
+                              [21, 30, 28, 19],
+                              ])
+        elif (camera_info['serial'][0] == 5):
+            chmap = np.array([
+                             [32, 31, 30, 29, 28, 27, 26, 25,],
+                             [24, 23, 22, 21, 20, 19, 18, 17,],
+                             [16, 15, 14, 13, 12, 11, 10,  9,],
+                             [ 8,  7,  6,  5,  4,  3,  2,  1,],
+                             ])
+    else:
+        chmap = apdcam_channel_list(camera_type,sensor_rotation)
+
     if _options['Use deployment channel numbering']:
         if camera_type == 'APDCAM-10G' and np.all(camera_info['genCameraSerial'] == np.asarray([0,0,0,4], dtype='int8')):
             # Per the installation on MAST-U, as of the MU04 campaign
             chmap = chmap.T
+        elif camera_type == 'APDCAM-1G':
+            # Not relevant
+            pass
         else:
             raise ValueError(f"For camera type {camera_type} and serial {camera_info['genCameraSerial']}, no deployment channel numbering is available. Set the option 'Use deployment channel numbering' to False, or implement a deployment channel numbering in 'mast_bes.py' for this configuration.")
     ch_names = []
@@ -777,7 +817,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                     raise RuntimeError('This should never happen: outdim != 1, 2, or 3.')
 
                 d.data_unit.unit = 'n.a.'
-                print(f'Applied intensity calibration from {calibration_filename}')
+                print(f'Applied intensity calibuuration from {calibration_filename}')
             else:
                 raise ValueError('Channel map in current data and reference calibration file do not match.')
 

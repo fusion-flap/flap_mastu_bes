@@ -179,9 +179,13 @@ class CalibrationReference:
             nc_file = os.path.join(shots_folder_bes, shotstring, file_name_from_shot_number(shotnumber))
                                
             with h5py.File(nc_file) as f:
-                apdcam_viewRadius = f['devices']['d3_APDcamera10G'].attrs['viewRadius']
-                apdcam_biasSet = f['devices']['d3_APDcamera10G'].attrs['biasSet']
-                filter_temperature_read = f['devices']['d8_filterheater'].attrs['temperature_read']
+                if 'd3_APDcamera10G' in f['devices']:
+                    # This is an APDCam-10G
+                    apdcam_viewRadius = f['devices']['d3_APDcamera10G'].attrs['viewRadius']
+                    apdcam_biasSet = f['devices']['d3_APDcamera10G'].attrs['biasSet']
+                    filter_temperature_read = f['devices']['d8_filterheater'].attrs['temperature_read']
+                else:
+                    raise NotImplementedError('Intensity calibration is only implemented for APDCam-10G')
         else:
             raise NotImplementedError('Only loading from cache directory directly is supported.')
         
