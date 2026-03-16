@@ -332,7 +332,11 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
         else:
             raise ValueError(f'Unknown {camera_type=}')
 
-        time_vector = MAST_file['time1'][()]
+        try:
+            time_vector = MAST_file['time1'][()]
+        except KeyError:
+            time_vector = MAST_file['time'][()]
+
         camera_info['APDCAM_samplenumber'] = len(time_vector)
         camera_info['APDCAM_starttime'] = time_vector[0]
         camera_info['APDCAM_sampletime'] = (time_vector[-1] - time_vector[0]) / (len(time_vector - 1))
