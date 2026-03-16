@@ -1,5 +1,6 @@
 from operator import itemgetter
 import os
+import warnings
 
 import h5py
 import numpy as np
@@ -183,7 +184,11 @@ class CalibrationReference:
                     # This is an APDCam-10G
                     apdcam_viewRadius = f['devices']['d3_APDcamera10G'].attrs['viewRadius']
                     apdcam_biasSet = f['devices']['d3_APDcamera10G'].attrs['biasSet']
-                    filter_temperature_read = f['devices']['d8_filterheater'].attrs['temperature_read']
+                    if 'temperature_read' in f['devices']['d8_filterheater'].attrs:
+                        filter_temperature_read = f['devices']['d8_filterheater'].attrs['temperature_read']
+                    else:
+                        warnings.warn("'temperature_read' not available, using 'temperature_set' instead")
+                        filter_temperature_read = f['devices']['d8_filterheater'].attrs['temperature_set']
                 else:
                     raise NotImplementedError('Intensity calibration is only implemented for APDCam-10G')
         else:
