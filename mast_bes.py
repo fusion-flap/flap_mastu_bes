@@ -821,7 +821,7 @@ def get_data_mast_bes(exp_id=None, data_name=None, no_data=False, options=None, 
                     raise RuntimeError('This should never happen: outdim != 1, 2, or 3.')
 
                 d.data_unit.unit = 'n.a.'
-                print(f'Applied intensity calibuuration from {calibration_filename}')
+                print(f'Applied intensity calibration from {calibration_filename}')
             else:
                 raise ValueError('Channel map in current data and reference calibration file do not match.')
 
